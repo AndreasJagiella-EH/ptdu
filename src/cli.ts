@@ -8,11 +8,11 @@ import { dirname } from "node:path";
 
 import * as logger from "./logger.js";
 import { setVerbose } from "./logger.js";
-import { pnpmWhy, pnpmInstall } from "./pnpm.js";
+import { pnpmWhy, pnpmInstall, pnpmAudit } from "./pnpm.js";
 import { extractBranches, formatBranch } from "./tree.js";
 import { analyzeBranch, clearCaches } from "./resolver.js";
 import { applyOverrides, removeOverrides, rollback } from "./override.js";
-import type { Override, PtduOptions } from "./types.js";
+import type { Override, PtduOptions, AuditOutput } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -174,6 +174,83 @@ async function run(packageArg: string, opts: PtduOptions): Promise<void> {
   }
 }
 
+/**
+ * Extract unique package@version targets from pnpm audit output.
+ */
+function extractAuditTargets(
+  audit: AuditOutput,
+): { name: string; version: string }[] {
+  const seen = new Set<string>();
+  const targets: { name: string; version: string }[] = [];
+
+  for (const advisory of Object.values(audit.advisories)) {
+    for (const finding of advisory.findings) {
+      const key = `${advisory.module_name}@${finding.version}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        targets.push({
+          name: advisory.module_name,
+          version: finding.version,
+        });
+      }
+    }
+  }
+
+  return targets;
+}
+
+async function runAudit(opts: PtduOptions): Promise<void> {
+  const resolvedCwd = resolve(opts.cwd);
+
+  setVerbose(opts.verbose);
+
+  if (!existsSync(join(resolvedCwd, "pnpm-lock.yaml"))) {
+    logger.error("No pnpm-lock.yaml found — are you in a pnpm project?");
+    process.exit(1);
+  }
+
+  logger.info("\nRunning pnpm audit...\n");
+  const audit = await pnpmAudit(resolvedCwd, opts.recursive);
+
+  const targets = extractAuditTargets(audit);
+  if (targets.length === 0) {
+    logger.success("No vulnerable dependencies found!");
+    return;
+  }
+
+  logger.info(`Found ${targets.length} vulnerable package(s) to process:\n`);
+  for (const t of targets) {
+    logger.info(`  • ${t.name}@${t.version}`);
+  }
+  logger.info("");
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const target of targets) {
+    const packageArg = `${target.name}@${target.version}`;
+    logger.info(`\n${"─".repeat(60)}`);
+    logger.info(`Processing: ${packageArg}`);
+    logger.info(`${"─".repeat(60)}`);
+    try {
+      await run(packageArg, opts);
+      successCount++;
+    } catch (err) {
+      logger.error(`Failed to resolve ${packageArg}: ${err}`);
+      failCount++;
+    }
+  }
+
+  logger.info(`\n${"═".repeat(60)}`);
+  logger.info("Audit summary:");
+  if (successCount > 0) {
+    logger.success(`  ${successCount} package(s) resolved`);
+  }
+  if (failCount > 0) {
+    logger.error(`  ${failCount} package(s) failed`);
+  }
+}
+
 const program = new Command();
 
 program
@@ -182,19 +259,38 @@ program
     "Update transitive dependencies in pnpm projects to resolve vulnerabilities",
   )
   .version(getVersion())
-  .argument("<package@version>", "Vulnerable package (e.g. qs@6.13.0)")
+  .argument(
+    "[package@version]",
+    "Vulnerable package (e.g. qs@6.13.0). Not needed with --audit.",
+  )
+  .option(
+    "--audit",
+    "Run pnpm audit and process all vulnerable dependencies",
+    false,
+  )
   .option("--dry-run", "Print what would be done without making changes", false)
   .option("--cwd <path>", "Working directory", ".")
   .option("-r, --recursive", "Run in all workspace packages", false)
   .option("-v, --verbose", "Print detailed debug output", false)
-  .action(async (packageArg: string, options) => {
+  .action(async (packageArg: string | undefined, options) => {
     try {
-      await run(packageArg, {
+      const opts: PtduOptions = {
         cwd: options.cwd,
         dryRun: options.dryRun,
         recursive: options.recursive,
         verbose: options.verbose,
-      });
+      };
+
+      if (options.audit) {
+        await runAudit(opts);
+      } else if (packageArg) {
+        await run(packageArg, opts);
+      } else {
+        logger.error(
+          "Please provide a <package@version> argument or use --audit.",
+        );
+        process.exit(1);
+      }
     } catch (err) {
       logger.error(`Unexpected error: ${err}`);
       process.exit(1);

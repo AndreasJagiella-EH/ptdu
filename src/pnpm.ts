@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as logger from "./logger.js";
-import type { PnpmWhyNode } from "./types.js";
+import type { PnpmWhyNode, AuditOutput } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -97,4 +97,34 @@ export async function pnpmInstall(
   logger.info("Running pnpm install...");
   const output = await runPnpm(args, cwd);
   if (output) logger.verbose(output);
+}
+
+/**
+ * Run `pnpm audit --json` and return parsed audit output.
+ */
+export async function pnpmAudit(
+  cwd: string,
+  recursive: boolean,
+): Promise<AuditOutput> {
+  const args = ["audit", "--json"];
+  if (recursive) args.push("-r");
+  try {
+    const output = await runPnpm(args, cwd);
+    if (!output) return { advisories: {} };
+    return JSON.parse(output);
+  } catch (err: unknown) {
+    // pnpm audit exits with non-zero when vulnerabilities are found,
+    // but still writes valid JSON to stdout
+    if (err && typeof err === "object" && "stdout" in err) {
+      const stdout = (err as { stdout: string }).stdout;
+      if (stdout) {
+        try {
+          return JSON.parse(stdout);
+        } catch {
+          // fall through
+        }
+      }
+    }
+    return { advisories: {} };
+  }
 }

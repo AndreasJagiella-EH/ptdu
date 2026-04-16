@@ -48,3 +48,31 @@ export interface PtduOptions {
   recursive: boolean;
   verbose: boolean;
 }
+
+/** A finding from pnpm audit */
+export interface AuditFinding {
+  version: string;
+  paths: string[];
+}
+
+/** A single advisory from pnpm audit --json */
+export interface AuditAdvisory {
+  id: number;
+  module_name: string;
+  severity: string;
+  findings: AuditFinding[];
+  vulnerable_versions: string;
+  patched_versions: string;
+  title: string;
+  recommendation: string;
+}
+
+/** The top-level pnpm audit --json output */
+export interface AuditOutput {
+  advisories: Record<string, AuditAdvisory>;
+  metadata?: {
+    vulnerabilities: Record<string, number>;
+    dependencies: number;
+    totalDependencies: number;
+  };
+}
