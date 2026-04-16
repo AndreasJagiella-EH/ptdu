@@ -14,6 +14,7 @@ pnpm add -g ptdu
 
 ```bash
 ptdu <package>@<version> [options]
+ptdu --audit [options]
 ```
 
 ### Example
@@ -33,12 +34,19 @@ ptdu qs@6.13.0 --cwd /path/to/project
 
 # Run across all workspace packages
 ptdu qs@6.13.0 --recursive
+
+# Audit mode: run pnpm audit and fix all vulnerable transitive deps
+ptdu --audit
+
+# Audit mode with dry run
+ptdu --audit --dry-run
 ```
 
 ### Options
 
 | Flag              | Description                                                   |
 | ----------------- | ------------------------------------------------------------- |
+| `--audit`         | Run `pnpm audit` and process all vulnerable dependencies      |
 | `--dry-run`       | Print what overrides would be applied without modifying files |
 | `--cwd <path>`    | Working directory (default: `.`)                              |
 | `-r, --recursive` | Run in all workspace packages                                 |
