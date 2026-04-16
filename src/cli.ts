@@ -52,8 +52,7 @@ async function run(packageArg: string, opts: PtduOptions): Promise<void> {
 
   // Validate pnpm project
   if (!existsSync(join(resolvedCwd, "pnpm-lock.yaml"))) {
-    logger.error("No pnpm-lock.yaml found — are you in a pnpm project?");
-    process.exit(1);
+    throw new Error("No pnpm-lock.yaml found — are you in a pnpm project?");
   }
 
   const { name: pkgName, version: pkgVersion } = parsePackageArg(packageArg);
@@ -149,8 +148,7 @@ async function run(packageArg: string, opts: PtduOptions): Promise<void> {
       await removeOverrides();
       await pnpmInstall(resolvedCwd, recursive);
     } catch (err) {
-      logger.error(`pnpm install failed after removing override.\n${err}`);
-      process.exit(1);
+      throw new Error(`pnpm install failed after removing override.\n${err}`);
     }
 
     // Clear resolver caches — the installed tree has changed
@@ -167,10 +165,9 @@ async function run(packageArg: string, opts: PtduOptions): Promise<void> {
       `\nDone! ${pkgName}@${pkgVersion} has been successfully resolved.`,
     );
   } else {
-    logger.error(
-      `\nCould not fully resolve ${pkgName}@${pkgVersion}. Manual intervention may be required.`,
+    throw new Error(
+      `Could not fully resolve ${pkgName}@${pkgVersion}. Manual intervention may be required.`,
     );
-    process.exit(1);
   }
 }
 
@@ -236,7 +233,8 @@ async function runAudit(opts: PtduOptions): Promise<void> {
       await run(packageArg, opts);
       successCount++;
     } catch (err) {
-      logger.error(`Failed to resolve ${packageArg}: ${err}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(msg);
       failCount++;
     }
   }
